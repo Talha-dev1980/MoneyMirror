@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MoneyMirror</title>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <style>
+    .tab-content { padding-top: 20px; }
+    .circle-btn {
+      border-radius: 50%;
+      width: 70px;
+      height: 70px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      color: #fff;
+      border: none;
+      margin: 10px;
+    }
+    .circle-btn input { display: none; }
+    #chart-container { max-width: 300px; margin: auto; height: 300px; }
+    .message { margin-top: 10px; }
+    .save-btn { font-size: 18px; padding: 10px 20px; }
+    .sticky-tabs { position: sticky; top: 0; z-index: 1000; background-color: #fff; }
+    .category-selected { box-shadow: 0 0 0 4px rgba(0,0,0,0.2); }
+    .category-badge {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      margin-left: 8px;
+    }
+    .Needs-badge { background-color: #007bff; color: white; }
+    .Wants-badge { background-color: #28a745; color: white; }
+    .Investments-badge { background-color: #ffc107; color: black; }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1 class="text-center my-4">MoneyMirror</h1>
+
+    <ul class="nav nav-tabs sticky-tabs" id="appTabs" role="tablist">
+      <li class="nav-item">
+        <a class="nav-link active" id="add-tab" data-toggle="tab" href="#add" role="tab">Add Expense</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" id="list-tab" data-toggle="tab" href="#list" role="tab">See Expenses</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" id="graph-tab" data-toggle="tab" href="#graph" role="tab">Graph</a>
+      </li>
+    </ul>
+
+    <div class="tab-content">
+      <!-- Add Expense Tab -->
+      <div class="tab-pane fade show active" id="add" role="tabpanel">
+        <div id="message" class="text-center message"></div>
+        <div class="form-group">
+          <label for="expenseName">Expense Name</label>
+          <input type="text" class="form-control" id="expenseName">
+        </div>
+        <div class="form-group">
+          <label for="expenseAmount">Amount</label>
+          <input type="number" class="form-control" id="expenseAmount">
+        </div>
+        <div class="form-group text-center">
+          <div class="circle-btn btn-primary" onclick="selectCategory('Needs')" id="btnNeeds">Needs</div>
+          <div class="circle-btn btn-success" onclick="selectCategory('Wants')" id="btnWants">Wants</div>
+          <div class="circle-btn btn-warning" onclick="selectCategory('Investments')" id="btnInvestments">Investments</div>
+        </div>
+        <div class="text-center">
+          <button class="btn btn-info save-btn" onclick="saveExpense()">Save</button>
+        </div>
+      </div>
+
+      <!-- Expense List Tab -->
+      <div class="tab-pane fade" id="list" role="tabpanel">
+        <h4>This Month's Total:</h4>
+        <select id="monthDropdown" class="form-control mb-2"></select>
+        <p id="totalSpent"></p>
+        <ul id="expenseList" class="list-group"></ul>
+      </div>
+
+      <!-- Graph Tab -->
+      <div class="tab-pane fade" id="graph" role="tabpanel">
+        <h4 class="text-center my-3" id="graphMonthTitle"></h4>
+        <div id="chart-container">
+          <canvas id="expenseChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script>
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let selectedCategory = '';
+    let chartInstance = null;
+
+    function selectCategory(category) {
+      selectedCategory = category;
+      document.querySelectorAll('.circle-btn').forEach(btn => btn.classList.remove('category-selected'));
+      document.getElementById(`btn${category}`).classList.add('category-selected');
+    }
+
+    function saveExpense() {
+      const name = document.getElementById('expenseName').value;
+      const amount = parseFloat(document.getElementById('expenseAmount').value);
+      const message = document.getElementById('message');
+
+      if (!name || isNaN(amount) || !selectedCategory) {
+        message.textContent = 'Please fill all fields and select a category';
+        message.style.color = 'red';
+        return;
+      }
+
+      const now = new Date();
+      const monthYear = now.toLocaleString('default', { month: 'short' }) + '-' + now.getFullYear();
+      const timestamp = now.getTime();
+
+      const expenseRef = db.ref(`expenses/${monthYear}/${selectedCategory}`).push();
+      expenseRef.set({ name, amount, category: selectedCategory, timestamp })
+        .then(() => {
+          message.textContent = 'Expense added successfully!';
+          message.style.color = 'green';
+          document.getElementById('expenseName').value = '';
+          document.getElementById('expenseAmount').value = '';
+        })
+        .catch(err => {
+          message.textContent = 'Error adding expense!';
+          message.style.color = 'red';
+        });
+    }
+
+    function populateMonthDropdown() {
+      db.ref('expenses').once('value', snapshot => {
+        const data = snapshot.val();
+        const dropdown = document.getElementById('monthDropdown');
+        dropdown.innerHTML = '';
+        if (data) {
+          Object.keys(data).sort().reverse().forEach(month => {
+            const opt = document.createElement('option');
+            opt.value = month;
+            opt.textContent = month;
+            dropdown.appendChild(opt);
+          });
+          loadExpenses(dropdown.value);
+        }
+      });
+    }
+
+    function loadExpenses(monthYear) {
+      const ref = db.ref(`expenses/${monthYear}`);
+      const total = { Needs: 0, Wants: 0, Investments: 0 };
+
+      document.getElementById('graphMonthTitle').textContent = `Expenses for ${monthYear}`;
+
+      ref.once('value', snapshot => {
+        const data = snapshot.val();
+        const list = document.getElementById('expenseList');
+        list.innerHTML = '';
+        let totalSpent = 0;
+        const allExpenses = [];
+
+        if (data) {
+          Object.entries(data).forEach(([category, expenses]) => {
+            Object.values(expenses).forEach(exp => {
+              totalSpent += exp.amount;
+              total[category] += exp.amount;
+              allExpenses.push(exp);
+            });
+          });
+
+          allExpenses.sort((a, b) => b.timestamp - a.timestamp).forEach(exp => {
+            const date = new Date(exp.timestamp);
+            const formattedDate = `${date.getHours().toString().padStart(2,'0')}:${date.getMinutes().toString().padStart(2,'0')} ${date.getDate()} ${date.toLocaleString('default', { month: 'short' })}`;
+            const item = document.createElement('li');
+            item.className = 'list-group-item d-flex justify-content-between align-items-center';
+            item.innerHTML = `<span>${exp.name} - €${exp.amount.toFixed(2)} <span class="category-badge ${exp.category}-badge">${exp.category}</span></span><small>${formattedDate}</small>`;
+            list.appendChild(item);
+          });
+        }
+
+        document.getElementById('totalSpent').textContent = `€${totalSpent.toFixed(2)}`;
+        updateChart(total);
+      });
+    }
+
+    function updateChart(data) {
+      const ctx = document.getElementById('expenseChart').getContext('2d');
+
+      if (chartInstance) {
+        chartInstance.destroy();
+      }
+
+      chartInstance = new Chart(ctx, {
+        type: 'pie',
+        data: {
+          labels: ['Needs', 'Wants', 'Investments'],
+          datasets: [{
+            data: [data.Needs, data.Wants, data.Investments],
+            backgroundColor: ['#007bff', '#28a745', '#ffc107']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom' }
+          }
+        }
+      });
+    }
+
+    document.getElementById('list-tab').addEventListener('click', populateMonthDropdown);
+    document.getElementById('graph-tab').addEventListener('click', () => {
+      const selectedMonth = document.getElementById('monthDropdown').value;
+      loadExpenses(selectedMonth);
+    });
+    document.getElementById('monthDropdown').addEventListener('change', (e) => {
+      loadExpenses(e.target.value);
+    });
+  </script>
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+
+</html>
